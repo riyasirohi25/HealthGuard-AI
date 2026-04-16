@@ -1,5 +1,3 @@
-# models/base_model.py
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
@@ -21,11 +19,6 @@ class ModelOutput:
 
 
 class BaseHealthModel(ABC):
-    """
-    Every model in HealthGuard AI must follow this interface.
-    This ensures Person 1 can connect any model to the API
-    without knowing the internal details.
-    """
 
     def __init__(self):
         self.model = None
@@ -34,16 +27,13 @@ class BaseHealthModel(ABC):
 
     @abstractmethod
     def load(self):
-        """Load model weights from disk"""
         pass
 
     @abstractmethod
     def predict(self, input: ModelInput) -> ModelOutput:
-        """Run inference on input"""
         pass
 
     def health_check(self) -> dict:
-        """Returns model status — used by API /health endpoint"""
         return {
             "model": self.__class__.__name__,
             "loaded": self.is_ready,
@@ -51,10 +41,6 @@ class BaseHealthModel(ABC):
         }
 
     def safe_predict(self, input: ModelInput) -> ModelOutput:
-        """
-        Wrapper around predict that catches errors.
-        API always calls this instead of predict directly.
-        """
         if not self.is_ready:
             return ModelOutput(
                 result={},
