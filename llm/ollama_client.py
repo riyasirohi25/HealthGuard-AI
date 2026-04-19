@@ -1,0 +1,173 @@
+# llm/ollama_client.py
+
+import requests
+import json
+
+OLLAMA_URL  = "http://localhost:11434/api/chat"
+MODEL_NAME  = "mistral"
+
+SYSTEM_PROMPT = """
+You are HealthGuard AI, an intelligent medical assistant built by a team of students.
+You help users with:
+1. Disease prediction from symptoms
+2. Lab report interpretation
+3. General medical Q&A
+
+Your job is to:
+- Understand what the user wants in natural language
+- Extract structured data like symptoms, lab values, or questions
+- Present model results in a warm, clear, human-friendly way
+- Always remind users to consult a real doctor
+
+Rules:
+- Never diagnose definitively
+- Always say "may indicate" or "could suggest"
+- Keep responses clear and easy to understand
+- Be empathetic and supportive
+"""
+
+
+class OllamaClient:
+
+    def __init__(self):
+        self.history = []
+
+    def reset(self):
+        self.history = []
+
+    def is_running(self) -> bool:
+        try:
+            res = requests.get("http://localhost:11434", timeout=3)
+            return True
+        except:
+            return False
+
+    def chat(self, user_message: str) -> str:
+        self.history.append({
+            "role": "user",
+            "content": user_message
+        })
+        payload = {
+            "model": MODEL_NAME,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                *self.history
+            ],
+            "stream": False
+        }
+        try:
+            response = requests.post(OLLAMA_URL, json=payload, timeout=60)
+            reply = response.json()["message"]["content"]
+            self.history.append({"role": "assistant", "content": reply})
+            return reply
+        except Exception as e:
+            return f"LLM error: {str(e)}"
+
+    def extract_intent(self, user_message: str) -> dict:
+        prompt = f"""
+Analyze this user message and return ONLY a valid JSON object, nothing else.
+No explanation. No markdown. Just raw JSON.
+
+User message: "{user_message}"
+
+Return exactly this format:
+{{
+    "module": "disease_predictor" or "lab_analyzer" or "qa_engine" or "general",
+    "symptoms": ["symptom1", "symptom2"] or [],
+    "lab_test": "test_name" or null,
+    "lab_value": 0.0 or null,
+    "lab_sex": "male" or "female" or null,
+    "question": "extracted question" or null
+}}
+
+Rules:
+- Use disease_predictor if user mentions body symptoms like fever, pain, headache
+- Use lab_analyzer if user mentions a lab test name with a numeric value
+- Use qa_engine if user asks a medical question
+- Use general for greetings or unclear messages
+"""
+        payload = {
+            "model": MODEL_NAME,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False
+        }
+        try:
+            response = requests.post(OLLAMA_URL, json=payload, timeout=60)
+            raw = response.json()["message"]["content"]
+            raw = raw.strip().replace("```json", "").replace("```", "").strip()
+            return json.loads(raw)
+        except:
+            return {
+                "module": "general",
+                "symptoms": [],
+                "lab_test": None,
+                "lab_value": None,
+                "lab_sex": None,
+                "question": None
+            }
+
+    def format_disease_result(self, result: dict, original_message: str) -> str:
+        prompt = f"""
+User said: "{original_message}"
+
+Disease prediction model returned:
+{json.dumps(result, indent=2)}
+
+Write a warm, clear 3-4 sentence response explaining these results.
+Mention the top disease and its confidence score.
+End with: "Please consult a doctor for proper diagnosis."
+"""
+        payload = {
+            "model": MODEL_NAME,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False
+        }
+        try:
+            return requests.post(
+                OLLAMA_URL, json=payload, timeout=60
+            ).json()["message"]["content"]
+        except:
+            return "Could not format result. Please check your Ollama server."
+
+    def format_lab_result(self, result: dict, original_message: str) -> str:
+        prompt = f"""
+User said: "{original_message}"
+
+Lab analysis returned:
+{json.dumps(result, indent=2)}
+
+Write a clear, caring 3-4 sentence response explaining what this result means.
+If status is CRITICALLY LOW or CRITICALLY HIGH, use urgent but calm language.
+End with: "Please consult your doctor to discuss these results."
+"""
+        payload = {
+            "model": MODEL_NAME,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False
+        }
+        try:
+            return requests.post(
+                OLLAMA_URL, json=payload, timeout=60
+            ).json()["message"]["content"]
+        except:
+            return "Could not format result. Please check your Ollama server."
+
+    def format_qa_result(self, answer: str, original_message: str) -> str:
+        prompt = f"""
+User asked: "{original_message}"
+Retrieved answer: "{answer}"
+
+Rephrase this as a warm, helpful 2-3 sentence response.
+Make it easy to understand for a non-medical person.
+"""
+        payload = {
+            "model": MODEL_NAME,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False
+        }
+        try:
+            return requests.post(
+                OLLAMA_URL, json=payload, timeout=60
+            ).json()["message"]["content"]
+        except:
+            return answer
