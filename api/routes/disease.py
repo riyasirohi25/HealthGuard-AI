@@ -25,4 +25,3 @@ def predict_disease(request: SymptomRequest):
         "explanation": "Disease predictor model is currently being trained.",
         "disclaimer": "This is not a substitute for professional medical advice."
     }
-
