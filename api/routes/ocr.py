@@ -1,7 +1,12 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, UploadFile, File
 
 router = APIRouter()
 
 @router.post("/ocr")
-def ocr():
-    return {"text": "dummy OCR"}
+async def extract_text(file: UploadFile = File(...)):
+    return {
+        "result": {"filename": file.filename, "extracted_text": ""},
+        "confidence": 0.0,
+        "explanation": "OCR module not yet connected",
+        "disclaimer": "This is not a substitute for professional medical advice."
+    }
