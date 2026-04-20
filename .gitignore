@@ -21,6 +21,17 @@ data/cleaned/*.jsonl
 *.csv
 *.jsonl
 *.parquet
+<<<<<<< HEAD
+=======
+data/
+*.index
+*.pt
+*.pth
+*.csv
+*.jsonl
+*.json
+*.parquet
+>>>>>>> 8a08d43580701720e3982bfc2749087e46ff4c54
 
 # Model weights (too large)
 models/saved_weights/

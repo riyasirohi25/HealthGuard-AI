@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,6 +15,14 @@ from config.config import (
 )
 
 app = FastAPI(title=APP_NAME, version=API_VERSION)
+=======
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from api.routes import disease, lab, qa, ocr
+
+app = FastAPI(title="HealthGuard AI")
+>>>>>>> 8a08d43580701720e3982bfc2749087e46ff4c54
 
 app.add_middleware(
     CORSMiddleware,
@@ -22,6 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+<<<<<<< HEAD
 # ── Load models ──────────────────────────────────────────
 print("Loading models...")
 
@@ -136,3 +146,17 @@ def answer_question(req: QARequest):
 @app.get("/lab/tests")
 def get_lab_tests():
     return {"tests": list(lab_reference.keys()), "count": len(lab_reference)}
+=======
+app.include_router(disease.router)
+app.include_router(lab.router)
+app.include_router(qa.router)
+app.include_router(ocr.router)
+
+@app.get("/")
+def root():
+    return {"status": "running"}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+>>>>>>> 8a08d43580701720e3982bfc2749087e46ff4c54
