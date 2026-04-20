@@ -6,7 +6,6 @@ from config.config import CLEANED_LAB
 
 router = APIRouter()
 
-# Load reference ranges
 ref_path = CLEANED_LAB / "lab_reference_ranges.json"
 with open(ref_path) as f:
     LAB_REFERENCE = json.load(f)
@@ -20,9 +19,9 @@ class LabRequest(BaseModel):
 def analyze_lab(request: LabRequest):
     if request.value < 0:
         raise HTTPException(status_code=400, detail="Value cannot be negative")
-    
+
     test = request.test_name.lower().replace(" ", "_")
-    
+
     if test not in LAB_REFERENCE:
         return {
             "result": {"status": "unknown_test", "test": test},
@@ -30,23 +29,23 @@ def analyze_lab(request: LabRequest):
             "explanation": f"No reference range found for '{test}'",
             "disclaimer": "This is not a substitute for professional medical advice."
         }
-    
+
     ref = LAB_REFERENCE[test]
-    
+
     if request.sex and request.sex.lower() in ref:
         range_ = ref[request.sex.lower()]
     else:
         range_ = ref.get("general", {})
-    
+
     low = range_.get("low", float("-inf"))
     high = range_.get("high", float("inf"))
     crit_low = ref.get("critical_low", float("-inf"))
     crit_high = ref.get("critical_high", float("inf"))
     unit = ref.get("unit", "")
     desc = ref.get("description", "")
-    
+
     val = float(request.value)
-    
+
     if val <= crit_low:
         status = "CRITICALLY LOW"
         explanation = f"{test} is critically low ({val} {unit}). Seek immediate medical attention. {desc}"
@@ -67,7 +66,7 @@ def analyze_lab(request: LabRequest):
         status = "NORMAL"
         explanation = f"{test} is within normal range ({low}–{high} {unit}). {desc}"
         confidence = 0.99
-    
+
     return {
         "result": {
             "test": test,
