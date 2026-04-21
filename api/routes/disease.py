@@ -1,8 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+from core.orchestrator import HealthOrchestrator
 
 router = APIRouter()
+orchestrator = HealthOrchestrator()
 
 class SymptomRequest(BaseModel):
     text: str
@@ -13,15 +15,13 @@ class SymptomRequest(BaseModel):
 def predict_disease(request: SymptomRequest):
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="Symptoms cannot be empty")
-    
-    # Model will be connected here after Riya finishes training
-    return {
-        "result": {
-            "diseases": [],
-            "symptoms_received": request.text,
-            "message": "Model training in progress — check back soon"
-        },
-        "confidence": 0.0,
-        "explanation": "Disease predictor model is currently being trained.",
-        "disclaimer": "This is not a substitute for professional medical advice."
-    }
+    try:
+        result = orchestrator.handle(request.text)
+        return {
+            "result": result.get("raw_result", {}),
+            "confidence": result.get("confidence", 0.0),
+            "explanation": result.get("response", ""),
+            "disclaimer": "This is not a substitute for professional medical advice."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

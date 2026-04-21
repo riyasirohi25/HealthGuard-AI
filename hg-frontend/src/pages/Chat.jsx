@@ -223,14 +223,14 @@ export default function Chat({ setPage }) {
     setInput("");
     setLoading(true);
     try {
-      const res  = await fetch("http://localhost:8000/qa", {
+      const res  = await fetch("http://localhost:8000/chat", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ question:q }),
+        body:JSON.stringify({ message:q }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const ans  = data.answer ?? data.response ?? data.result ?? JSON.stringify(data);
+      const ans  = data.response ?? data.explanation ?? data.answer ?? JSON.stringify(data);
       setMessages(p => [...p, { role:"ai", id:uid(), time:now(), text:ans }]);
     } catch(err) {
       setMessages(p => [...p, {
@@ -249,10 +249,7 @@ export default function Chat({ setPage }) {
 
   return (
     <>
-      {/* LAYER 0 — animation, fixed, never intercepts clicks */}
       <LottieBG />
-
-      {/* LAYER 1 — full app, above animation */}
       <div style={{
         position :"relative",
         zIndex   :1,
@@ -262,8 +259,6 @@ export default function Chat({ setPage }) {
         overflow :"hidden",
         fontFamily:"'DM Sans',sans-serif",
       }}>
-
-        {/* SIDEBAR CLIP WRAPPER — controls slide width */}
         <div style={{
           width     :sidebar ? 240 : 0,
           minWidth  :sidebar ? 240 : 0,
@@ -273,7 +268,6 @@ export default function Chat({ setPage }) {
           position  :"relative",
           zIndex    :20,
         }}>
-          {/* SIDEBAR PANEL — fixed 240px, overflow visible so clicks work */}
           <div style={{
             width    :240,
             height   :"100vh",
@@ -284,10 +278,7 @@ export default function Chat({ setPage }) {
             WebkitBackdropFilter:"blur(28px)",
             borderRight:`1px solid ${BORDER}`,
           }}>
-            {/* Scrollable content */}
             <div style={{flex:1, overflowY:"auto", overflowX:"hidden", padding:"18px 14px 0"}}>
-
-              {/* Logo */}
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
                 <div style={{
                   width:38, height:38, borderRadius:11, flexShrink:0,
@@ -307,7 +298,6 @@ export default function Chat({ setPage }) {
                 </div>
               </div>
 
-              {/* New Chat button */}
               <button
                 className="hg-newchat"
                 onClick={clear}
@@ -321,16 +311,14 @@ export default function Chat({ setPage }) {
                   whiteSpace:"nowrap",
                 }}
               >
-                <span style={{fontSize:18,lineHeight:1}}>＋</span>
+                <span style={{fontSize:18,lineHeight:1}}>+</span>
                 New Conversation
               </button>
 
-              {/* Nav label */}
               <div style={{fontSize:".6rem",color:"rgba(148,163,184,0.36)",letterSpacing:".13em",marginBottom:7,paddingLeft:2}}>
                 NAVIGATION
               </div>
 
-              {/* Nav buttons */}
               <div style={{display:"flex",flexDirection:"column",gap:3,marginBottom:20}}>
                 {[
                   { icon:"💬", label:"Chat", pg:"chat" },
@@ -357,10 +345,8 @@ export default function Chat({ setPage }) {
                 ))}
               </div>
 
-              {/* Divider */}
               <div style={{height:1,background:BORDER,margin:"0 0 14px"}}/>
 
-              {/* Recent chats label */}
               <div style={{fontSize:".6rem",color:"rgba(148,163,184,0.36)",letterSpacing:".13em",marginBottom:7,paddingLeft:2}}>
                 RECENT CHATS
               </div>
@@ -377,12 +363,11 @@ export default function Chat({ setPage }) {
                   whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
                   marginBottom:2, background:"transparent",
                 }}>
-                  {m.text.length > 32 ? m.text.slice(0,32)+"…" : m.text}
+                  {m.text.length > 32 ? m.text.slice(0,32)+"..." : m.text}
                 </div>
               ))}
             </div>
 
-            {/* User badge */}
             <div style={{padding:"12px 14px",borderTop:`1px solid ${BORDER}`,flexShrink:0}}>
               <div style={{
                 display:"flex", alignItems:"center", gap:9,
@@ -405,15 +390,12 @@ export default function Chat({ setPage }) {
           </div>
         </div>
 
-        {/* MAIN AREA */}
         <main style={{
           flex:1, display:"flex", flexDirection:"column",
           height:"100vh", overflow:"hidden",
           position:"relative", zIndex:1,
           background:"rgba(2,6,23,0.55)",
         }}>
-
-          {/* Topbar */}
           <header style={{
             display:"flex", alignItems:"center", justifyContent:"space-between",
             padding:"0 20px", height:56, flexShrink:0,
@@ -464,14 +446,11 @@ export default function Chat({ setPage }) {
             >🗑 Clear</button>
           </header>
 
-          {/* Messages scroll area */}
           <div style={{
             flex:1, overflowY:"auto", padding:"26px 0",
             position:"relative", zIndex:2,
           }}>
             <div style={{maxWidth:740,width:"100%",margin:"0 auto",padding:"0 18px"}}>
-
-              {/* Welcome / suggestion chips */}
               {messages.length === 1 && (
                 <div style={{marginBottom:28,animation:"fadeIn .5s both"}}>
                   <div style={{textAlign:"center",marginBottom:22}}>
@@ -511,7 +490,6 @@ export default function Chat({ setPage }) {
             </div>
           </div>
 
-          {/* Input bar */}
           <div style={{
             padding:"12px 18px 18px",
             background:"rgba(2,6,23,0.9)",

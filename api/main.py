@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from api.routes import disease, lab, qa, ocr
+from core.orchestrator import HealthOrchestrator
 
 app = FastAPI(title="HealthGuard AI")
 
@@ -18,6 +19,9 @@ app.include_router(disease.router)
 app.include_router(lab.router)
 app.include_router(qa.router)
 app.include_router(ocr.router)
+
+# ── Initialize orchestrator once ──────────────────
+_orchestrator = HealthOrchestrator()
 
 # ── Chat endpoint ─────────────────────────────────
 class ChatRequest(BaseModel):
@@ -45,34 +49,20 @@ def reset():
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    msg = req.message.lower()
-
-    # Route to disease predictor
-    if any(w in msg for w in ["fever","pain","headache","cough","nausea","fatigue","symptom"]):
+    try:
+        result = _orchestrator.handle(req.message)
         return {
-            "response":     f"I can see you're describing symptoms. Please use the Disease Predictor module for a detailed analysis of: '{req.message}'",
-            "module_used":  "Disease Predictor",
-            "confidence":   0.85,
-            "raw_result":   {},
-            "disclaimer":   "Not a substitute for professional medical advice."
+            "response":    result.get("response", ""),
+            "module_used": result.get("module_used", "General Assistant"),
+            "confidence":  result.get("confidence", 0.0),
+            "raw_result":  result.get("raw_result", {}),
+            "disclaimer":  "Not a substitute for professional medical advice."
         }
-
-    # Route to lab analyzer
-    elif any(w in msg for w in ["glucose","hemoglobin","cholesterol","hba1c","lab","test","report","mg/dl","g/dl"]):
+    except Exception as e:
         return {
-            "response":     f"This looks like a lab value query. Please use the Lab Analyzer module for: '{req.message}'",
-            "module_used":  "Lab Analyzer",
-            "confidence":   0.80,
-            "raw_result":   {},
-            "disclaimer":   "Not a substitute for professional medical advice."
-        }
-
-    # General medical Q&A
-    else:
-        return {
-            "response":     f"Great question! For '{req.message}' — please use the Medical Q&A module for a detailed answer from our knowledge base.",
-            "module_used":  "Medical Q&A",
-            "confidence":   0.75,
-            "raw_result":   {},
-            "disclaimer":   "Not a substitute for professional medical advice."
+            "response":    f"Error processing your request: {str(e)}",
+            "module_used": "Error",
+            "confidence":  0.0,
+            "raw_result":  {},
+            "disclaimer":  "Not a substitute for professional medical advice."
         }
