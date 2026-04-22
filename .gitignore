@@ -15,8 +15,6 @@ env/
 .venv/
 
 # Data files (too large for GitHub)
-data/raw/
-data/cleaned/
 data/
 
 # Model weights (too large)
@@ -26,6 +24,12 @@ models/saved_weights/
 *.bin
 *.onnx
 *.index
+
+# Large data formats
+*.csv
+*.jsonl
+*.parquet
+*.json
 
 # Jupyter
 .ipynb_checkpoints/
@@ -46,6 +50,6 @@ Thumbs.db
 logs/
 *.log
 
+# Frontend
 node_modules/
 hg-frontend/node_modules/
-.env

@@ -202,9 +202,11 @@ export default function Chat({ setPage }) {
   const [input,   setInput]   = useState("");
   const [loading, setLoading] = useState(false);
   const [sidebar, setSidebar] = useState(true);
+  const [file,    setFile]    = useState(null);
 
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
+  const fileRef   = useRef(null);
 
   useEffect(() => {
     try { localStorage.setItem(STORE, JSON.stringify(messages)); } catch {}
@@ -218,16 +220,32 @@ export default function Chat({ setPage }) {
 
   const send = useCallback(async (text) => {
     const q = (text ?? input).trim();
-    if (!q || loading) return;
-    setMessages(p => [...p, { role:"user", id:uid(), time:now(), text:q }]);
+    if ((!q && !file) || loading) return;
+
+    const label = q
+      ? (file ? `${q}\n\n📎 *${file.name}*` : q)
+      : `📎 *${file.name}*`;
+
+    setMessages(p => [...p, { role:"user", id:uid(), time:now(), text:label }]);
     setInput("");
+    const attachedFile = file;
+    setFile(null);
     setLoading(true);
+
     try {
-      const res  = await fetch("http://localhost:8000/chat", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ message:q }),
-      });
+      let res;
+      if (attachedFile) {
+        const form = new FormData();
+        form.append("file", attachedFile);
+        if (q) form.append("message", q);
+        res = await fetch("http://localhost:8000/chat/upload", { method:"POST", body:form });
+      } else {
+        res = await fetch("http://localhost:8000/chat", {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({ message:q }),
+        });
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const ans  = data.response ?? data.explanation ?? data.answer ?? JSON.stringify(data);
@@ -241,11 +259,13 @@ export default function Chat({ setPage }) {
       setLoading(false);
       setTimeout(() => inputRef.current?.focus(), 60);
     }
-  }, [input, loading]);
+  }, [input, file, loading]);
 
-  const clear  = () => { setMessages([WELCOME]); localStorage.removeItem(STORE); };
-  const onKey  = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
-  const recent = messages.filter(m => m.role === "user");
+  const clear      = () => { setMessages([WELCOME]); localStorage.removeItem(STORE); };
+  const onKey      = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
+  const onFilePick = e => { const f = e.target.files?.[0]; if (f) setFile(f); e.target.value = ""; };
+  const removeFile = () => setFile(null);
+  const recent     = messages.filter(m => m.role === "user");
 
   return (
     <>
@@ -311,7 +331,7 @@ export default function Chat({ setPage }) {
                   whiteSpace:"nowrap",
                 }}
               >
-                <span style={{fontSize:18,lineHeight:1}}>+</span>
+                <span style={{fontSize:18,lineHeight:1}}>＋</span>
                 New Conversation
               </button>
 
@@ -363,7 +383,7 @@ export default function Chat({ setPage }) {
                   whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
                   marginBottom:2, background:"transparent",
                 }}>
-                  {m.text.length > 32 ? m.text.slice(0,32)+"..." : m.text}
+                  {m.text.length > 32 ? m.text.slice(0,32)+"…" : m.text}
                 </div>
               ))}
             </div>
@@ -497,7 +517,90 @@ export default function Chat({ setPage }) {
             borderTop:`1px solid ${BORDER}`,
             flexShrink:0, position:"relative", zIndex:5,
           }}>
-            <div style={{maxWidth:740,margin:"0 auto",display:"flex",alignItems:"flex-end",gap:10}}>
+            {file && (
+              <div style={{
+                maxWidth:740, margin:"0 auto 8px",
+                display:"flex", alignItems:"center", gap:8,
+              }}>
+                <div style={{
+                  display:"inline-flex", alignItems:"center", gap:8,
+                  background:"rgba(0,210,255,0.08)",
+                  border:`1px solid rgba(0,210,255,0.25)`,
+                  borderRadius:99, padding:"5px 12px 5px 10px",
+                  animation:"fadeIn .2s both",
+                }}>
+                  <span style={{fontSize:15}}>
+                    {/\.(pdf)$/i.test(file.name) ? "📄"
+                      : /\.(png|jpg|jpeg|webp|gif)$/i.test(file.name) ? "🖼️"
+                      : /\.(docx?|txt)$/i.test(file.name) ? "📝"
+                      : "📎"}
+                  </span>
+                  <span style={{
+                    fontSize:".78rem", color:"rgba(203,213,225,0.9)",
+                    fontFamily:"'DM Sans',sans-serif",
+                    maxWidth:260, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                  }}>
+                    {file.name}
+                  </span>
+                  <span style={{fontSize:".7rem",color:"rgba(148,163,184,0.5)"}}>
+                    ({(file.size/1024).toFixed(0)} KB)
+                  </span>
+                  <button
+                    onClick={removeFile}
+                    style={{
+                      background:"none", border:"none", cursor:"pointer",
+                      color:"rgba(148,163,184,0.55)", fontSize:14,
+                      display:"flex", alignItems:"center",
+                      padding:"0 2px", lineHeight:1,
+                      transition:"color 0.15s",
+                    }}
+                    onMouseEnter={e=>e.currentTarget.style.color="rgba(255,100,100,0.8)"}
+                    onMouseLeave={e=>e.currentTarget.style.color="rgba(148,163,184,0.55)"}
+                    title="Remove file"
+                  >✕</button>
+                </div>
+              </div>
+            )}
+
+            <div style={{maxWidth:740,margin:"0 auto",display:"flex",alignItems:"flex-end",gap:8}}>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp,.csv,.xlsx"
+                onChange={onFilePick}
+                style={{display:"none"}}
+              />
+
+              <button
+                onClick={() => fileRef.current?.click()}
+                title="Attach document or report"
+                style={{
+                  width:46, height:46, borderRadius:13,
+                  flexShrink:0, border:`1px solid ${file ? "rgba(0,210,255,0.45)" : BORDER}`,
+                  background: file ? "rgba(0,210,255,0.1)" : "rgba(255,255,255,0.04)",
+                  cursor:"pointer",
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  transition:"all 0.2s",
+                  boxShadow: file ? "0 0 12px rgba(0,210,255,0.2)" : "none",
+                }}
+                onMouseEnter={e=>{
+                  e.currentTarget.style.background="rgba(0,210,255,0.1)";
+                  e.currentTarget.style.borderColor="rgba(0,210,255,0.45)";
+                }}
+                onMouseLeave={e=>{
+                  if (!file) {
+                    e.currentTarget.style.background="rgba(255,255,255,0.04)";
+                    e.currentTarget.style.borderColor=BORDER;
+                  }
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"
+                    stroke={file ? ACCENT : "rgba(148,163,184,0.7)"}
+                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+
               <div className="hg-wrap" style={{
                 flex:1,
                 background:"rgba(255,255,255,0.04)",
@@ -515,7 +618,7 @@ export default function Chat({ setPage }) {
                     e.target.style.height = "auto";
                     e.target.style.height = Math.min(e.target.scrollHeight, 130) + "px";
                   }}
-                  placeholder="Ask about symptoms, lab tests, medications…"
+                  placeholder={file ? "Add a question about this file… (or press Enter to send)" : "Ask about symptoms, lab tests, medications…"}
                   style={{
                     width:"100%", background:"none", border:"none",
                     color:"#e2e8f0", fontSize:".9rem",
@@ -529,16 +632,16 @@ export default function Chat({ setPage }) {
               <button
                 className="hg-send"
                 onClick={() => send()}
-                disabled={!input.trim() || loading}
+                disabled={(!input.trim() && !file) || loading}
                 style={{
                   width:46, height:46, borderRadius:13,
                   flexShrink:0, border:"none",
-                  background: (!input.trim() || loading)
+                  background: ((!input.trim() && !file) || loading)
                     ? "rgba(255,255,255,0.05)"
                     : `linear-gradient(135deg,${ACCENT2},${ACCENT})`,
-                  cursor: (!input.trim() || loading) ? "not-allowed" : "pointer",
+                  cursor: ((!input.trim() && !file) || loading) ? "not-allowed" : "pointer",
                   display:"flex", alignItems:"center", justifyContent:"center",
-                  boxShadow: (!input.trim() || loading)
+                  boxShadow: ((!input.trim() && !file) || loading)
                     ? "none"
                     : `0 0 16px rgba(0,210,255,0.38)`,
                 }}
