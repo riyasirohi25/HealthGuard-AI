@@ -1,4 +1,5 @@
-# 🏥 HealthGuard AI
+# 🏥 HealthGuard AI — Intelligent Medical Assistant System
+
 
 An intelligent medical AI system that helps users understand symptoms, interpret lab reports, read prescriptions, and get answers to medical questions — all in one place.
 
