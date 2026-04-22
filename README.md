@@ -163,7 +163,22 @@ Training achieved ~81.6% validation accuracy over 5 epochs on 770+ disease class
 HealthGuard AI is for informational purposes only. It is **not a substitute for professional medical advice**. Always consult a qualified physician for diagnosis and treatment.
 
 ---
+## 👥 Team & Contributions
 
+This project was developed collaboratively as part of a team.
+
+### 👩‍💻 My Contributions (Riya Sirohi)
+- Integrated LLM pipeline using Ollama (phi3:mini) for response generation
+- Implemented backend orchestration using FastAPI
+- Worked on lab test analyzer logic and response formatting
+- Assisted in frontend-backend integration and testing
+- Helped optimize the system for low-RAM environments
+
+
+Original Repository:
+https://github.com/riyasirohi25/HealthGuard-AI
+
+---
 ## 👩‍💻 Built by
 
 Chahak Porwal,
