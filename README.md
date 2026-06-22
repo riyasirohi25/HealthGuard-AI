@@ -298,11 +298,11 @@ This project was developed collaboratively as part of a team.
 
 ### 👩‍💻 My Contributions (Riya Sirohi)
 
-* Integrated LLM pipeline using Ollama (phi3:mini) for response generation
-* Implemented backend orchestration using FastAPI
-* Worked on lab test analyzer logic and response formatting
-* Assisted in frontend-backend integration and testing
-* Helped optimize the system for low-RAM environments
+* Fine-tuned BioBERT disease classification model on 770+ disease categories.
+* Designed and implemented the FAISS-based retrieval pipeline for medical question answering.
+* Built OCR-based prescription analysis workflow using EasyOCR.
+* Developed the local LLM orchestration layer using Ollama and phi3.
+* Implemented FastAPI backend services and AI model integration.
 
 ---
 
