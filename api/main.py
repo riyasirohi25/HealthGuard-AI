@@ -24,6 +24,7 @@ app.include_router(ocr.router)
 
 # ── Initialize orchestrator and LLM once ──────────────────
 _orchestrator = HealthOrchestrator()
+app.state.orchestrator = _orchestrator
 _llm = OllamaClient()
 
 # ── Initialize EasyOCR once at startup ────────────────────
@@ -42,18 +43,16 @@ def root():
 
 @app.get("/health")
 def health():
+    modules = _orchestrator.get_module_status()
+    modules["ocr"] = "ready" if "_ocr_reader" in globals() else "not loaded"
     return {
-        "status": "ok",
-        "modules": {
-            "disease_predictor": "ready",
-            "lab_analyzer":      "ready",
-            "medical_qa":        "ready",
-            "ocr":               "ready"
-        }
+        "status": "ok" if modules.get("disease_predictor") == "ready" else "degraded",
+        "modules": modules,
     }
 
 @app.post("/reset")
 def reset():
+    _orchestrator.reset_conversation()
     return {"status": "ok"}
 
 @app.post("/chat")

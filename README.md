@@ -16,7 +16,7 @@ HealthGuard AI combines OCR, NLP, Retrieval-Augmented Generation (RAG), disease 
 
 ## 🚀 Features
 
-* 🤒 **Disease Predictor** — Detects possible conditions from symptoms using a fine-tuned BioBERT model trained on 770+ diseases
+* 🤒 **Disease Predictor** — Ranks possible conditions from symptoms using a fine-tuned BioBERT classifier; supported classes come from the exact training dataset and saved label mapping
 * 🧪 **Lab Analyzer** — Interprets blood test results and flags abnormal values with explanations
 * 💊 **Prescription Reader** — Reads handwritten and printed prescriptions using EasyOCR and summarizes them in simple language
 * ❓ **Medical Q&A** — Answers health questions using a FAISS-indexed medical knowledge base
@@ -67,20 +67,34 @@ The platform is designed with a strong focus on:
 
 ---
 
-## 🧠 Model Weights
+## 🧠 BioBERT Model Artifacts — 773 Classes
 
-The trained BioBERT disease predictor model (~415MB) is hosted on Google Drive:
+The recovered Kaggle disease-prediction checkpoint is stored locally at:
 
-📥 **[Download disease_predictor.pt](https://drive.google.com/file/d/1DSAOwZ-t40kSIbiiog55peYYXJ6FTFtQ/view?usp=sharing)**
-
-After downloading, place it here:
-
-```bash
-models/saved_weights/disease_predictor.pt
+```text
+models/saved_weights/disease_predictor_773.pt
 ```
 
----
+Its matching label map is:
 
+```text
+data/cleaned/symptom_disease/disease2id.json
+```
+
+The checkpoint is a fine-tuned BioBERT state dictionary with a 773-output classifier head. The loader uses strict state-dictionary loading and refuses to start if the tensor names/shapes or label count do not match.
+
+The base BioBERT model and tokenizer must also be available. By default, the project uses `dmis-lab/biobert-v1.1`. For an offline/local Hugging Face snapshot, set:
+
+```bash
+export HEALTHGUARD_BIOBERT_BASE="/path/to/biobert-v1.1/snapshot"
+```
+
+The supplied Kaggle CSV contains 189,647 rows and 773 disease classes. Its `disease_id` values were checked against the repository's canonical alphabetical 773-class map. Keep the dataset and map from the same Kaggle dataset version.
+
+The smaller 4,920-row raw symptom tables are a separate legacy 41-class source. Running `scripts/data_cleaning/clean_symptoms.py` writes its output to `data/cleaned/symptom_disease_legacy_41/`; it does not overwrite the 773-class mapping.
+
+---
+ 
 ## 🛠️ Tech Stack
 
 | Layer         | Technology                       |
@@ -142,15 +156,31 @@ pip install -r requirements.txt
 
 ---
 
-### 4. Download Model Weights
+### 4. Configure the Recovered 773-Class BioBERT Model
 
-Download `disease_predictor.pt` from the link above and place it inside:
+Place the recovered checkpoint at:
 
-```bash
-models/saved_weights/disease_predictor.pt
+```text
+models/saved_weights/disease_predictor_773.pt
 ```
 
----
+Keep the matching tracked mapping at:
+
+```text
+data/cleaned/symptom_disease/disease2id.json
+```
+
+If the BioBERT base model is already cached locally and the machine has no Hugging Face Hub access, point the project at that snapshot before starting the backend:
+
+```bash
+export HEALTHGUARD_BIOBERT_BASE="/path/to/biobert-v1.1/snapshot"
+```
+
+The model loader validates the 773-class mapping and strictly loads the recovered checkpoint into the configured BioBERT architecture. It does not retrain the model.
+
+The fine-tuning script is available for a future training run using the 773-class cleaned CSV at `data/cleaned/symptom_disease/symptoms_diseases_clean.csv`. It validates any existing `disease_id` column against the canonical map and keeps single-example classes in training only (they cannot also appear in validation without data leakage).
+
+**Do not run the legacy 41-class cleaner to recreate the 773-class training data.** That cleaner writes to `data/cleaned/symptom_disease_legacy_41/` and uses a separate source dataset.
 
 ### 5. Pull Ollama Model
 
@@ -265,12 +295,14 @@ healthguard-ai/
 
 ## 📓 Model Training
 
-The disease predictor was trained on Kaggle using a T4 GPU due to local RAM constraints.
+The recovered Kaggle BioBERT checkpoint has **773 output classes**. The supplied Kaggle cleaned dataset contains **189,647 rows across 773 diseases**. Its label IDs are contiguous from 0 to 772, unique per disease, and consistent with the canonical alphabetical `disease2id.json` mapping.
 
-Training achieved approximately **81.6% validation accuracy** over 5 epochs on a dataset containing 770+ disease classes.
+The repository notebook also contains an older 41-class experiment (304 cleaned rows). That notebook output describes a different, smaller dataset and must not be used as the label map for the recovered 773-class checkpoint.
+
+For future fine-tuning, run `python scripts/training/train_disease_predictor.py` only after placing the matching 773-class cleaned CSV in the configured data directory. Validation omits singleton classes while retaining them in training.
 
 ---
-
+ 
 ## 🌍 Real-World Impact
 
 HealthGuard AI is designed to improve healthcare accessibility by simplifying complex medical information through AI-powered analysis and explainable healthcare intelligence.

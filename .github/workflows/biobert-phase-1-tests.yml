@@ -1,0 +1,50 @@
+name: BioBERT Phase 1 Tests
+
+on:
+  push:
+    branches:
+      - bugfix/phase-1-biobert-stability
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "models/disease_predictor/**"
+      - "api/routes/disease.py"
+      - "api/routes/qa.py"
+      - "api/main.py"
+      - "scripts/training/train_disease_predictor.py"
+      - "scripts/data_cleaning/clean_symptoms.py"
+      - "tests/unit/test_disease_predictor.py"
+      - "tests/unit/test_disease_route.py"
+      - "tests/unit/test_qa_route.py"
+      - "tests/unit/test_disease_training.py"
+      - "tests/unit/test_clean_symptoms.py"
+      - ".github/workflows/biobert-phase-1-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  disease-predictor-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy pandas scikit-learn pytest tqdm fastapi
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Run BioBERT stability tests
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest -q tests/unit/test_disease_predictor.py tests/unit/test_disease_training.py tests/unit/test_clean_symptoms.py tests/unit/test_disease_route.py tests/unit/test_qa_route.py
