@@ -1,11 +1,11 @@
-"""BioBERT disease classifier with checkpoint-bound label metadata."""
+"""773-class BioBERT disease classifier with strict checkpoint/mapping validation."""
 import json
 from pathlib import Path
 
 import torch
 
 from models.base_model import BaseHealthModel, ModelInput, ModelOutput
-from config.config import BIOBERT_MODEL, DISEASE_MODEL_DIR, SAVED_WEIGHTS_DIR
+from config.config import BIOBERT_MODEL, CLEANED_SYMPTOM, SAVED_WEIGHTS_DIR
 
 
 class DiseasePredictorModel(BaseHealthModel):
@@ -18,18 +18,18 @@ class DiseasePredictorModel(BaseHealthModel):
 
     @property
     def artifact_dir(self) -> Path:
-        """Preferred Hugging Face save_pretrained() artifact directory."""
+        """Preferred self-contained Hugging Face save_pretrained() directory."""
         return SAVED_WEIGHTS_DIR / "disease_predictor"
 
     @property
-    def legacy_checkpoint_path(self) -> Path:
-        """Pre-existing state-dict checkpoint downloaded from the project README."""
-        return SAVED_WEIGHTS_DIR / "disease_predictor.pt"
+    def checkpoint_path(self) -> Path:
+        """Recovered Kaggle 773-class state-dict checkpoint."""
+        return SAVED_WEIGHTS_DIR / "disease_predictor_773.pt"
 
     @property
-    def legacy_mapping_path(self) -> Path:
-        """Tracked 41-class mapping used by the original BioBERT notebook."""
-        return DISEASE_MODEL_DIR / "disease2id.json"
+    def mapping_path(self) -> Path:
+        """Canonical 773-class mapping belonging to the cleaned Kaggle dataset."""
+        return CLEANED_SYMPTOM / "disease2id.json"
 
     @staticmethod
     def _read_label_mapping(path):
@@ -40,8 +40,10 @@ class DiseasePredictorModel(BaseHealthModel):
 
         mapping = {str(name): int(label_id) for name, label_id in raw_mapping.items()}
         ids = sorted(mapping.values())
+        if len(set(mapping.values())) != len(mapping):
+            raise ValueError("Disease label IDs must be unique")
         if ids != list(range(len(mapping))):
-            raise ValueError("Disease label IDs must be unique and contiguous from 0")
+            raise ValueError("Disease label IDs must be contiguous from 0")
         return mapping
 
     def _set_mapping(self, mapping):
@@ -51,21 +53,15 @@ class DiseasePredictorModel(BaseHealthModel):
             label_id: name for name, label_id in mapping.items()
         }
 
-    def _load_preferred_artifacts(self):
+    def _load_self_contained_artifacts(self):
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
         mapping_path = self.artifact_dir / "disease2id.json"
-        config_path = self.artifact_dir / "config.json"
-        mapping = self._read_label_mapping(mapping_path)
-
-        with config_path.open(encoding="utf-8") as file:
-            model_config = json.load(file)
-        configured_labels = model_config.get("num_labels")
-        if configured_labels != len(mapping):
-            raise ValueError(
-                "Checkpoint label count does not match disease2id.json "
-                f"({configured_labels} != {len(mapping)}). Retrain the model."
+        if not mapping_path.is_file():
+            raise FileNotFoundError(
+                f"Model artifact mapping missing: {mapping_path}"
             )
+        mapping = self._read_label_mapping(mapping_path)
 
         tokenizer = AutoTokenizer.from_pretrained(
             str(self.artifact_dir), local_files_only=True
@@ -75,8 +71,8 @@ class DiseasePredictorModel(BaseHealthModel):
         )
         if model.config.num_labels != len(mapping):
             raise ValueError(
-                "Loaded classifier head does not match disease2id.json. "
-                "Retrain the model and replace the complete artifact directory."
+                "Saved model classifier size does not match its disease mapping "
+                f"({model.config.num_labels} != {len(mapping)})"
             )
 
         self._set_mapping(mapping)
@@ -84,53 +80,104 @@ class DiseasePredictorModel(BaseHealthModel):
         self.model = model.to(self.device)
         self.model.eval()
 
-    def _load_legacy_checkpoint(self):
-        """Load the old .pt checkpoint only against its tracked 41-class mapping.
-
-        Strict state-dict loading checks classifier tensor dimensions. If the
-        downloaded checkpoint is not the 41-class notebook checkpoint, loading
-        fails closed instead of guessing the label order.
-        """
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
-
-        mapping = self._read_label_mapping(self.legacy_mapping_path)
-        tokenizer = AutoTokenizer.from_pretrained(BIOBERT_MODEL)
-        model = AutoModelForSequenceClassification.from_pretrained(
-            BIOBERT_MODEL, num_labels=len(mapping)
-        )
-
+    @staticmethod
+    def _read_state_dict(checkpoint_path):
         try:
             state_dict = torch.load(
-                self.legacy_checkpoint_path,
+                checkpoint_path,
                 map_location="cpu",
                 weights_only=True,
             )
         except TypeError as exc:
             raise RuntimeError(
-                "This PyTorch version does not support safe weights_only loading. "
-                "Upgrade PyTorch before loading the legacy model checkpoint."
+                "Safe checkpoint loading requires a PyTorch version supporting "
+                "torch.load(weights_only=True). Upgrade PyTorch; do not load this "
+                "checkpoint with unrestricted pickle deserialization."
             ) from exc
 
-        if isinstance(state_dict, dict) and isinstance(state_dict.get("state_dict"), dict):
-            state_dict = state_dict["state_dict"]
-        if not isinstance(state_dict, dict):
-            raise ValueError("Legacy BioBERT checkpoint is not a state dictionary")
+        if isinstance(state_dict, dict):
+            for key in ("state_dict", "model_state_dict", "model"):
+                if isinstance(state_dict.get(key), dict):
+                    state_dict = state_dict[key]
+                    break
+        if not isinstance(state_dict, dict) or not state_dict:
+            raise ValueError("BioBERT checkpoint is not a non-empty state dictionary")
+        return state_dict
 
-        model.load_state_dict(state_dict, strict=True)
-        if model.config.num_labels != len(mapping):
-            raise ValueError("Legacy BioBERT classifier head does not match its label map")
+    def _load_kaggle_checkpoint(self):
+        from transformers import (
+            AutoConfig,
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+        )
+
+        mapping = self._read_label_mapping(self.mapping_path)
+        if len(mapping) != 773:
+            raise ValueError(
+                "The recovered Kaggle checkpoint is a 773-class model, but "
+                f"the canonical mapping contains {len(mapping)} labels. "
+                "Check data/cleaned/symptom_disease/disease2id.json."
+            )
+
+        # Build the exact architecture from the configured local BioBERT base.
+        # HEALTHGUARD_BIOBERT_BASE may point at a local Hugging Face snapshot
+        # when this machine cannot reach the Hugging Face Hub.
+        config = AutoConfig.from_pretrained(
+            BIOBERT_MODEL,
+            local_files_only=True,
+        )
+        if getattr(config, "model_type", None) != "bert":
+            raise ValueError(
+                f"Expected a BERT checkpoint base, got {config.model_type!r}"
+            )
+        if getattr(config, "hidden_size", None) != 768:
+            raise ValueError(
+                f"Expected BioBERT hidden size 768, got {config.hidden_size}"
+            )
+
+        config.num_labels = len(mapping)
+        config.label2id = dict(mapping)
+        config.id2label = {
+            int(label_id): disease for disease, label_id in mapping.items()
+        }
+
+        model = AutoModelForSequenceClassification.from_config(config)
+        state_dict = self._read_state_dict(self.checkpoint_path)
+
+        # Strict loading verifies every expected tensor name and shape, including
+        # the 773 x 768 classifier matrix. No classifier weights are reinitialized.
+        incompatible = model.load_state_dict(state_dict, strict=True)
+        if incompatible.missing_keys or incompatible.unexpected_keys:
+            raise ValueError(
+                "Checkpoint tensors do not exactly match BioBERT architecture: "
+                f"missing={incompatible.missing_keys}, "
+                f"unexpected={incompatible.unexpected_keys}"
+            )
+        if model.classifier.out_features != len(mapping):
+            raise ValueError(
+                "Loaded classifier output size does not match the disease mapping"
+            )
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            BIOBERT_MODEL,
+            local_files_only=True,
+        )
+        if len(tokenizer) > config.vocab_size:
+            raise ValueError(
+                "BioBERT tokenizer vocabulary is larger than the model vocabulary"
+            )
 
         self._set_mapping(mapping)
         self.tokenizer = tokenizer
         self.model = model.to(self.device)
         self.model.eval()
         print(
-            "Loaded legacy BioBERT checkpoint against the tracked "
-            f"{self.num_labels}-class mapping"
+            "Loaded recovered Kaggle BioBERT checkpoint — "
+            f"{self.num_labels} disease classes"
         )
 
     def load(self):
-        """Prefer self-contained artifacts, then safely try the legacy checkpoint."""
+        """Load self-contained artifacts first, otherwise the recovered 773-class file."""
         self.is_ready = False
         self.model = None
         self.tokenizer = None
@@ -138,25 +185,24 @@ class DiseasePredictorModel(BaseHealthModel):
         self.id2disease = {}
         self.num_labels = 0
 
-        mapping_path = self.artifact_dir / "disease2id.json"
-        config_path = self.artifact_dir / "config.json"
         try:
-            if mapping_path.is_file() and config_path.is_file():
-                self._load_preferred_artifacts()
-            elif (
-                self.legacy_checkpoint_path.is_file()
-                and self.legacy_mapping_path.is_file()
+            if (
+                (self.artifact_dir / "config.json").is_file()
+                and (self.artifact_dir / "disease2id.json").is_file()
             ):
-                self._load_legacy_checkpoint()
+                self._load_self_contained_artifacts()
+            elif self.checkpoint_path.is_file() and self.mapping_path.is_file():
+                self._load_kaggle_checkpoint()
             else:
                 print(
-                    "BioBERT disease artifacts are missing. Download the legacy "
-                    "checkpoint or train with scripts/training/train_disease_predictor.py."
+                    "BioBERT artifacts not found. Expected either a complete "
+                    f"model directory at {self.artifact_dir} or checkpoint "
+                    f"{self.checkpoint_path} plus mapping {self.mapping_path}."
                 )
                 return
 
             self.is_ready = True
-            print(f"BioBERT disease predictor loaded — {self.num_labels} classes")
+            print(f"Disease predictor ready — {self.num_labels} classes")
         except Exception as exc:
             self.model = None
             self.tokenizer = None
@@ -180,31 +226,32 @@ class DiseasePredictorModel(BaseHealthModel):
 
         with torch.inference_mode():
             outputs = self.model(**encoded)
-            probabilities = torch.softmax(outputs.logits, dim=1)[0]
+            scores = torch.softmax(outputs.logits, dim=1)[0]
 
-        top_k = min(3, self.num_labels)
-        top = torch.topk(probabilities, k=top_k)
+        top = torch.topk(scores, k=min(3, self.num_labels))
         diseases = [
             {
                 "name": self.id2disease[int(index.item())],
-                "confidence": round(float(score.item()), 3),
+                "confidence": round(float(score.item()), 4),
                 "disease_id": int(index.item()),
             }
             for score, index in zip(top.values, top.indices)
         ]
 
         top_name = diseases[0]["name"] if diseases else "unknown"
+        symptom_count = len(
+            [part for part in input.text.split(",") if part.strip()]
+        )
         return ModelOutput(
             result={
                 "diseases": diseases,
-                "symptom_count": len(
-                    [part for part in input.text.split(",") if part.strip()]
-                ),
+                "symptom_count": symptom_count,
             },
             confidence=diseases[0]["confidence"] if diseases else 0.0,
             explanation=(
-                f"BioBERT ranked {top_name} highest among its trained classes. "
-                "This model output is not a diagnosis; consult a qualified clinician."
+                f"BioBERT ranked {top_name} highest among its 773 trained classes. "
+                "The model score is not a clinical probability or diagnosis; "
+                "consult a qualified clinician."
             ),
-            sources=["biobert_classifier"],
+            sources=["biobert_classifier", "kaggle_773_disease_dataset"],
         )
