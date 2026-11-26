@@ -1,19 +1,20 @@
-"""Train BioBERT and save its classifier head with its exact label mapping.
+"""Fine-tune BioBERT on the 773-class cleaned symptom/disease dataset.
 
 Expected input: data/cleaned/symptom_disease/symptoms_diseases_clean.csv
 Required columns: disease, symptoms_text
-The CSV is intentionally not committed to Git; run the data-cleaning pipeline first.
+Optional source column: disease_id (validated against the canonical alphabetical map).
+Singleton diseases remain in training; they are excluded from validation because a
+single example cannot appear in both partitions without leakage.
 """
 import json
-import math
 import random
 import shutil
 
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader
+
 from config.config import BIOBERT_MODEL, CLEANED_SYMPTOM, SAVED_WEIGHTS_DIR
 
 
@@ -62,7 +63,8 @@ def load_training_data():
     if not csv_path.is_file():
         raise FileNotFoundError(
             f"Training data not found: {csv_path}. "
-            "Run scripts/data_cleaning/clean_symptoms.py first."
+            "Place the 773-class Kaggle CSV there; do not run the separate "
+            "41-class legacy source cleaner over this directory."
         )
 
     frame = pd.read_csv(csv_path)
@@ -80,22 +82,74 @@ def load_training_data():
     if frame.empty:
         raise ValueError("Training CSV contains no usable disease/symptom rows")
 
-    counts = frame["disease"].value_counts()
-    too_rare = counts[counts < 2]
-    if not too_rare.empty:
-        examples = ", ".join(
-            f"{name} ({count})" for name, count in too_rare.head(8).items()
-        )
-        raise ValueError(
-            "A stratified train/validation split requires at least two rows per "
-            f"disease. Rare classes include: {examples}. Add data or define a "
-            "separate evaluation strategy; do not silently drop these diseases."
-        )
-
     labels = sorted(frame["disease"].unique())
     disease2id = {name: index for index, name in enumerate(labels)}
+
+    # When the prepared CSV has disease_id, validate the original data mapping
+    # rather than silently replacing potentially different label IDs.
+    if "disease_id" in frame.columns:
+        numeric_ids = pd.to_numeric(frame["disease_id"], errors="coerce")
+        if numeric_ids.isna().any():
+            raise ValueError("disease_id contains missing or non-numeric values")
+        frame["disease_id"] = numeric_ids.astype(int)
+        observed = frame[["disease", "disease_id"]].drop_duplicates()
+        disease_to_ids = observed.groupby("disease")["disease_id"].nunique()
+        id_to_diseases = observed.groupby("disease_id")["disease"].nunique()
+        if (disease_to_ids > 1).any() or (id_to_diseases > 1).any():
+            raise ValueError("CSV disease_id values do not define a one-to-one label map")
+        csv_mapping = {
+            str(name): int(label_id)
+            for name, label_id in observed[["disease", "disease_id"]].itertuples(
+                index=False, name=None
+            )
+        }
+        if csv_mapping != disease2id:
+            raise ValueError(
+                "CSV disease_id values do not match the alphabetical mapping. "
+                "Do not train until the exact Kaggle mapping is restored."
+            )
+
     frame["label"] = frame["disease"].map(disease2id)
     return frame, disease2id
+
+
+def build_train_validation_split(
+    frame, validation_fraction=VALIDATION_SIZE, seed=SEED
+):
+    """Split each class independently; singleton samples remain in training only."""
+    if not 0.0 < validation_fraction < 1.0:
+        raise ValueError("validation_fraction must be between 0 and 1")
+
+    rng = np.random.default_rng(seed)
+    train_indices = []
+    validation_indices = []
+    singleton_labels = []
+
+    for label, group in frame.groupby("label", sort=True):
+        indices = group.index.to_numpy().copy()
+        rng.shuffle(indices)
+        if len(indices) == 1:
+            train_indices.extend(indices.tolist())
+            singleton_labels.append(int(label))
+            continue
+
+        validation_count = max(1, int(round(len(indices) * validation_fraction)))
+        validation_count = min(validation_count, len(indices) - 1)
+        validation_indices.extend(indices[:validation_count].tolist())
+        train_indices.extend(indices[validation_count:].tolist())
+
+    if not train_indices or not validation_indices:
+        raise ValueError(
+            "Not enough data to form non-empty train and validation partitions"
+        )
+
+    train_frame = frame.loc[train_indices].sample(
+        frac=1, random_state=seed
+    ).reset_index(drop=True)
+    validation_frame = frame.loc[validation_indices].sample(
+        frac=1, random_state=seed
+    ).reset_index(drop=True)
+    return train_frame, validation_frame, singleton_labels
 
 
 def evaluate(model, loader, device):
@@ -124,23 +178,16 @@ def main():
 
     set_seed()
     frame, disease2id = load_training_data()
-
-    # Ensure both partitions have at least one sample from every class.
-    validation_count = max(
-        math.ceil(len(frame) * VALIDATION_SIZE), len(disease2id)
+    train_frame, validation_frame, singleton_labels = build_train_validation_split(
+        frame
     )
-    if len(frame) - validation_count < len(disease2id):
-        raise ValueError(
-            "Not enough rows for a stratified train/validation split with every "
-            "disease represented in both partitions. Add more examples per class."
+
+    if singleton_labels:
+        print(
+            f"WARNING: {len(singleton_labels)} singleton disease classes remain "
+            "in training but are excluded from validation because they have only "
+            "one sample."
         )
-
-    train_frame, validation_frame = train_test_split(
-        frame,
-        test_size=validation_count,
-        random_state=SEED,
-        stratify=frame["label"],
-    )
 
     tokenizer = AutoTokenizer.from_pretrained(BIOBERT_MODEL)
     train_loader = DataLoader(
