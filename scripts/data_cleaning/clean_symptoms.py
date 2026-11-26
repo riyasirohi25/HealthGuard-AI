@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from config.config import RAW_SYMPTOM, CLEANED_SYMPTOM
+from config.config import RAW_SYMPTOM, LEGACY_CLEANED_SYMPTOM
 
 
 # Source datasets contain a few inconsistent spellings. These aliases are used
@@ -199,7 +199,7 @@ def clean_symptom_files(raw_dir=RAW_SYMPTOM):
 def main():
     print(f"Reading original symptom dataset from: {RAW_SYMPTOM}")
     df_clean, disease2id, severity_lookup = clean_symptom_files(RAW_SYMPTOM)
-    CLEANED_SYMPTOM.mkdir(parents=True, exist_ok=True)
+    LEGACY_CLEANED_SYMPTOM.mkdir(parents=True, exist_ok=True)
 
     print(f"Final records: {len(df_clean)}")
     print(f"Unique diseases: {df_clean['disease'].nunique()}")
@@ -209,15 +209,15 @@ def main():
         f"max={df_clean['disease'].value_counts().max()}"
     )
 
-    df_clean.to_csv(CLEANED_SYMPTOM / "symptoms_diseases_clean.csv", index=False)
-    with (CLEANED_SYMPTOM / "disease2id.json").open("w", encoding="utf-8") as file:
+    df_clean.to_csv(LEGACY_CLEANED_SYMPTOM / "symptoms_diseases_clean.csv", index=False)
+    with (LEGACY_CLEANED_SYMPTOM / "disease2id.json").open("w", encoding="utf-8") as file:
         json.dump(disease2id, file, indent=2, ensure_ascii=False)
-    with (CLEANED_SYMPTOM / "symptom_severity.json").open("w", encoding="utf-8") as file:
+    with (LEGACY_CLEANED_SYMPTOM / "symptom_severity.json").open("w", encoding="utf-8") as file:
         json.dump(severity_lookup, file, indent=2, ensure_ascii=False)
-    with (CLEANED_SYMPTOM / "all_symptoms.json").open("w", encoding="utf-8") as file:
+    with (LEGACY_CLEANED_SYMPTOM / "all_symptoms.json").open("w", encoding="utf-8") as file:
         json.dump(sorted(severity_lookup.keys()), file, indent=2, ensure_ascii=False)
 
-    print(f"Cleaned files saved to: {CLEANED_SYMPTOM}")
+    print(f"Legacy 41-class cleaned files saved to: {LEGACY_CLEANED_SYMPTOM}")
 
 
 if __name__ == "__main__":
