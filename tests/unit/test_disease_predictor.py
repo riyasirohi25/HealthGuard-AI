@@ -1,129 +1,126 @@
 import json
+import sys
+import types
+from types import SimpleNamespace
 
 import pytest
+import torch
 
 from models.disease_predictor.model import DiseasePredictorModel
 
 
-def test_model_not_ready_without_checkpoint_metadata(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        DiseasePredictorModel,
-        "artifact_dir",
-        property(lambda self: tmp_path),
-    )
-    predictor = DiseasePredictorModel()
-    predictor.load()
-    assert predictor.is_ready is False
-    assert predictor.model is None
-
-
-def test_rejects_non_contiguous_label_ids(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        DiseasePredictorModel,
-        "artifact_dir",
-        property(lambda self: tmp_path),
-    )
-    (tmp_path / "disease2id.json").write_text(
-        json.dumps({"condition-a": 0, "condition-b": 2}),
-        encoding="utf-8",
-    )
-    (tmp_path / "config.json").write_text(
-        json.dumps({"num_labels": 2}),
-        encoding="utf-8",
-    )
-
-    predictor = DiseasePredictorModel()
-    predictor.load()
-
-    assert predictor.is_ready is False
-    assert predictor.model is None
-    assert "condition-a" not in predictor.id2disease.values()
-
-
-def test_rejects_label_count_mismatch_before_loading_transformers(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setattr(
-        DiseasePredictorModel,
-        "artifact_dir",
-        property(lambda self: tmp_path),
-    )
-    (tmp_path / "disease2id.json").write_text(
-        json.dumps({"condition-a": 0, "condition-b": 1}),
-        encoding="utf-8",
-    )
-    (tmp_path / "config.json").write_text(
-        json.dumps({"num_labels": 41}),
-        encoding="utf-8",
-    )
-
-    predictor = DiseasePredictorModel()
-    predictor.load()
-
-    assert predictor.is_ready is False
-    assert predictor.model is None
-
-
-def test_loads_legacy_checkpoint_only_with_matching_tracked_mapping(
-    tmp_path, monkeypatch
-):
-    import sys
-    import types
-    import torch
-
-    from types import SimpleNamespace
+def _install_fake_transformers(monkeypatch):
+    class FakeConfig:
+        def __init__(self):
+            self.model_type = "bert"
+            self.hidden_size = 768
+            self.vocab_size = 28996
+            self.num_labels = 2
+            self.label2id = {}
+            self.id2label = {}
 
     class FakeModel(torch.nn.Module):
-        def __init__(self, num_labels):
+        def __init__(self, config):
             super().__init__()
-            self.classifier = torch.nn.Linear(2, num_labels)
-            self.config = SimpleNamespace(num_labels=num_labels)
+            self.config = config
+            self.classifier = torch.nn.Linear(768, config.num_labels)
 
-        def forward(self, **inputs):
-            return SimpleNamespace(logits=torch.zeros(1, self.config.num_labels))
+        def forward(self, input_ids, attention_mask=None):
+            logits = torch.zeros(
+                input_ids.shape[0], self.config.num_labels, device=input_ids.device
+            )
+            logits[:, 7] = 10.0
+            return SimpleNamespace(logits=logits)
 
-    class FakeAutoModel:
-        @staticmethod
-        def from_pretrained(model_name, num_labels):
-            return FakeModel(num_labels)
+    class FakeTokenizer:
+        def __len__(self):
+            return 28996
 
-    class FakeAutoTokenizer:
-        @staticmethod
-        def from_pretrained(model_name):
-            return object()
+        def __call__(self, text, **kwargs):
+            return {
+                "input_ids": torch.tensor([[1, 2, 3]], dtype=torch.long),
+                "attention_mask": torch.tensor([[1, 1, 1]], dtype=torch.long),
+            }
 
-    fake_transformers = types.ModuleType("transformers")
-    fake_transformers.AutoModelForSequenceClassification = FakeAutoModel
-    fake_transformers.AutoTokenizer = FakeAutoTokenizer
-    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    fake = types.ModuleType("transformers")
+    fake.AutoConfig = SimpleNamespace(
+        from_pretrained=lambda *args, **kwargs: FakeConfig()
+    )
+    fake.AutoModelForSequenceClassification = SimpleNamespace(
+        from_config=lambda config: FakeModel(config),
+        from_pretrained=lambda *args, **kwargs: FakeModel(FakeConfig()),
+    )
+    fake.AutoTokenizer = SimpleNamespace(
+        from_pretrained=lambda *args, **kwargs: FakeTokenizer()
+    )
+    monkeypatch.setitem(sys.modules, "transformers", fake)
+    return FakeModel
 
+
+def _write_773_mapping(path):
+    mapping = {f"disease-{index:03d}": index for index in range(773)}
+    path.write_text(json.dumps(mapping), encoding="utf-8")
+    return mapping
+
+
+def test_model_not_ready_without_checkpoint_or_artifacts(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        DiseasePredictorModel, "artifact_dir", property(lambda self: tmp_path / "model")
+    )
+    monkeypatch.setattr(
+        DiseasePredictorModel, "checkpoint_path", property(lambda self: tmp_path / "missing.pt")
+    )
+    monkeypatch.setattr(
+        DiseasePredictorModel, "mapping_path", property(lambda self: tmp_path / "missing.json")
+    )
+
+    predictor = DiseasePredictorModel()
+    predictor.load()
+
+    assert predictor.is_ready is False
+    assert predictor.model is None
+
+
+def test_rejects_non_contiguous_label_ids(tmp_path):
+    path = tmp_path / "disease2id.json"
+    path.write_text(json.dumps({"condition-a": 0, "condition-b": 2}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="contiguous"):
+        DiseasePredictorModel._read_label_mapping(path)
+
+
+def test_loads_773_class_kaggle_checkpoint_strictly_and_predicts(
+    tmp_path, monkeypatch
+):
+    fake_model_class = _install_fake_transformers(monkeypatch)
     mapping_path = tmp_path / "disease2id.json"
-    mapping_path.write_text(
-        json.dumps({"condition-a": 0, "condition-b": 1}),
-        encoding="utf-8",
+    checkpoint_path = tmp_path / "disease_predictor_773.pt"
+    mapping = _write_773_mapping(mapping_path)
+
+    config = SimpleNamespace(
+        model_type="bert",
+        hidden_size=768,
+        vocab_size=28996,
+        num_labels=773,
+        label2id=mapping,
+        id2label={index: name for name, index in mapping.items()},
     )
-    checkpoint_path = tmp_path / "disease_predictor.pt"
-    torch.save(
-        {
-            "classifier.weight": torch.zeros(2, 2),
-            "classifier.bias": torch.zeros(2),
-        },
-        checkpoint_path,
-    )
+    saved_state = fake_model_class(config).state_dict()
+    torch.save(saved_state, checkpoint_path)
 
     monkeypatch.setattr(
         DiseasePredictorModel,
         "artifact_dir",
-        property(lambda self: tmp_path / "new-format-does-not-exist"),
+        property(lambda self: tmp_path / "self-contained-model"),
     )
     monkeypatch.setattr(
         DiseasePredictorModel,
-        "legacy_mapping_path",
+        "mapping_path",
         property(lambda self: mapping_path),
     )
     monkeypatch.setattr(
         DiseasePredictorModel,
-        "legacy_checkpoint_path",
+        "checkpoint_path",
         property(lambda self: checkpoint_path),
     )
 
@@ -131,5 +128,46 @@ def test_loads_legacy_checkpoint_only_with_matching_tracked_mapping(
     predictor.load()
 
     assert predictor.is_ready is True
-    assert predictor.num_labels == 2
-    assert predictor.id2disease == {0: "condition-a", 1: "condition-b"}
+    assert predictor.num_labels == 773
+    assert predictor.model.classifier.out_features == 773
+
+    from models.base_model import ModelInput
+
+    result = predictor.predict(ModelInput(text="fever, headache, cough"))
+    assert len(result.result["diseases"]) == 3
+    assert result.result["diseases"][0]["name"] == "disease-007"
+    assert result.result["symptom_count"] == 3
+
+
+def test_rejects_wrong_mapping_count_before_loading_transformers(
+    tmp_path, monkeypatch
+):
+    mapping_path = tmp_path / "disease2id.json"
+    mapping_path.write_text(
+        json.dumps({"condition-a": 0, "condition-b": 1}),
+        encoding="utf-8",
+    )
+    checkpoint_path = tmp_path / "disease_predictor_773.pt"
+    checkpoint_path.write_bytes(b"not loaded")
+
+    monkeypatch.setattr(
+        DiseasePredictorModel,
+        "artifact_dir",
+        property(lambda self: tmp_path / "self-contained-model"),
+    )
+    monkeypatch.setattr(
+        DiseasePredictorModel,
+        "mapping_path",
+        property(lambda self: mapping_path),
+    )
+    monkeypatch.setattr(
+        DiseasePredictorModel,
+        "checkpoint_path",
+        property(lambda self: checkpoint_path),
+    )
+
+    predictor = DiseasePredictorModel()
+    predictor.load()
+
+    assert predictor.is_ready is False
+    assert predictor.model is None
