@@ -10,11 +10,13 @@ on:
     paths:
       - "models/disease_predictor/**"
       - "api/routes/disease.py"
+      - "api/routes/qa.py"
       - "api/main.py"
       - "scripts/training/train_disease_predictor.py"
       - "scripts/data_cleaning/clean_symptoms.py"
       - "tests/unit/test_disease_predictor.py"
       - "tests/unit/test_disease_route.py"
+      - "tests/unit/test_qa_route.py"
       - "tests/unit/test_disease_training.py"
       - "tests/unit/test_clean_symptoms.py"
       - ".github/workflows/biobert-phase-1-tests.yml"
@@ -45,4 +47,4 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          python -m pytest -q tests/unit/test_disease_predictor.py tests/unit/test_disease_training.py tests/unit/test_clean_symptoms.py tests/unit/test_disease_route.py
+          python -m pytest -q tests/unit/test_disease_predictor.py tests/unit/test_disease_training.py tests/unit/test_clean_symptoms.py tests/unit/test_disease_route.py tests/unit/test_qa_route.py
