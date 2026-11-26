@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 BASE_DIR    = Path(__file__).parent.parent
@@ -15,7 +16,8 @@ RAW_MEDMCQA  = RAW_DATA / "medmcqa"
 RAW_LAB      = RAW_DATA / "lab_values"
 RAW_NCBI     = RAW_DATA / "ncbi"
 
-CLEANED_SYMPTOM = CLEANED_DATA / "symptom_disease"
+CLEANED_SYMPTOM = CLEANED_DATA / "symptom_disease"  # 773-class BioBERT dataset
+LEGACY_CLEANED_SYMPTOM = CLEANED_DATA / "symptom_disease_legacy_41"
 CLEANED_QA      = CLEANED_DATA / "qa_datasets"
 CLEANED_LAB     = CLEANED_DATA / "lab_values"
 CLEANED_NCBI    = CLEANED_DATA / "ncbi"
@@ -26,7 +28,7 @@ QA_MODEL_DIR      = MODELS_DIR / "qa_engine"
 SUMMARIZER_DIR    = MODELS_DIR / "summarizer"
 SAVED_WEIGHTS_DIR = MODELS_DIR / "saved_weights"
 
-BIOBERT_MODEL   = "dmis-lab/biobert-v1.1"
+BIOBERT_MODEL   = os.getenv("HEALTHGUARD_BIOBERT_BASE", "dmis-lab/biobert-v1.1")
 FLAN_T5_MODEL   = "google/flan-t5-base"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -47,7 +49,7 @@ for directory in [
     RAW_DATA, CLEANED_DATA,
     RAW_SYMPTOM, RAW_MEDQUAD, RAW_MEDQA,
     RAW_MEDMCQA, RAW_LAB, RAW_NCBI,
-    CLEANED_SYMPTOM, CLEANED_QA, CLEANED_LAB, CLEANED_NCBI,
+    CLEANED_SYMPTOM, LEGACY_CLEANED_SYMPTOM, CLEANED_QA, CLEANED_LAB, CLEANED_NCBI,
     DISEASE_MODEL_DIR, LAB_MODEL_DIR,
     QA_MODEL_DIR, SUMMARIZER_DIR, SAVED_WEIGHTS_DIR
 ]:
