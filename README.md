@@ -67,28 +67,34 @@ The platform is designed with a strong focus on:
 
 ---
 
-## 🧠 BioBERT Model Artifacts
+## 🧠 BioBERT Model Artifacts — 773 Classes
 
-The preferred BioBERT format is a complete Hugging Face model directory at:
-
-```text
-models/saved_weights/disease_predictor/
-```
-
-It contains the model configuration and weights, tokenizer files, and the exact `disease2id.json` mapping used during training.
-
-The existing Google Drive `disease_predictor.pt` state-dict checkpoint is also supported as a legacy format. Download it and place it at:
+The recovered Kaggle disease-prediction checkpoint is stored locally at:
 
 ```text
-models/saved_weights/disease_predictor.pt
+models/saved_weights/disease_predictor_773.pt
 ```
 
-For this legacy checkpoint, the loader uses the tracked `models/disease_predictor/disease2id.json` mapping (41 classes) and strict state-dict loading. The classifier tensor dimensions must match this mapping; otherwise, loading fails closed and the model remains unavailable. The mapping is alphabetically generated from the same 41-disease source dataset represented in the committed training notebook.
+Its matching label map is:
 
-To regenerate a self-contained checkpoint and mapping, follow the training steps below.
+```text
+data/cleaned/symptom_disease/disease2id.json
+```
+
+The checkpoint is a fine-tuned BioBERT state dictionary with a 773-output classifier head. The loader uses strict state-dictionary loading and refuses to start if the tensor names/shapes or label count do not match.
+
+The base BioBERT model and tokenizer must also be available. By default, the project uses `dmis-lab/biobert-v1.1`. For an offline/local Hugging Face snapshot, set:
+
+```bash
+export HEALTHGUARD_BIOBERT_BASE="/path/to/biobert-v1.1/snapshot"
+```
+
+The supplied Kaggle CSV contains 189,647 rows and 773 disease classes. Its `disease_id` values were checked against the repository's canonical alphabetical 773-class map. Keep the dataset and map from the same Kaggle dataset version.
+
+The smaller 4,920-row raw symptom tables are a separate legacy 41-class source. Running `scripts/data_cleaning/clean_symptoms.py` writes its output to `data/cleaned/symptom_disease_legacy_41/`; it does not overwrite the 773-class mapping.
 
 ---
-
+ 
 ## 🛠️ Tech Stack
 
 | Layer         | Technology                       |
@@ -150,25 +156,31 @@ pip install -r requirements.txt
 
 ---
 
-### 4. Prepare and Train the BioBERT Disease Predictor
+### 4. Configure the Recovered 773-Class BioBERT Model
 
-The cleaning script expects these source dataset files under `data/raw/symptom_disease/`:
+Place the recovered checkpoint at:
 
-- `dataset.csv`
-- `symptom_Description.csv`
-- `symptom_precaution.csv`
-- `Symptom-severity.csv`
-
-After placing those files locally, run:
-
-```bash
-python scripts/data_cleaning/clean_symptoms.py
-python scripts/training/train_disease_predictor.py
+```text
+models/saved_weights/disease_predictor_773.pt
 ```
 
-Training uses a deterministic disease-to-index mapping derived from the cleaned CSV, a stratified train/validation split, and saves the best BioBERT checkpoint with its tokenizer and matching mapping to `models/saved_weights/disease_predictor/`. The trainer deliberately stops if a disease has fewer than two examples or if the dataset cannot support every class in both split partitions. Add/curate data or define a separate evaluation strategy rather than silently dropping classes.
+Keep the matching tracked mapping at:
 
-Model weights and source datasets are local artifacts and are excluded from Git by `.gitignore`.
+```text
+data/cleaned/symptom_disease/disease2id.json
+```
+
+If the BioBERT base model is already cached locally and the machine has no Hugging Face Hub access, point the project at that snapshot before starting the backend:
+
+```bash
+export HEALTHGUARD_BIOBERT_BASE="/path/to/biobert-v1.1/snapshot"
+```
+
+The model loader validates the 773-class mapping and strictly loads the recovered checkpoint into the configured BioBERT architecture. It does not retrain the model.
+
+The fine-tuning script is available for a future training run using the 773-class cleaned CSV at `data/cleaned/symptom_disease/symptoms_diseases_clean.csv`. It validates any existing `disease_id` column against the canonical map and keeps single-example classes in training only (they cannot also appear in validation without data leakage).
+
+**Do not run the legacy 41-class cleaner to recreate the 773-class training data.** That cleaner writes to `data/cleaned/symptom_disease_legacy_41/` and uses a separate source dataset.
 
 ### 5. Pull Ollama Model
 
@@ -283,12 +295,14 @@ healthguard-ai/
 
 ## 📓 Model Training
 
-The committed notebook contains a historical BioBERT experiment whose recorded data output is **304 rows across 41 disease classes**. Its later training cell reports **86.89% validation accuracy** on that experiment. This result must not be interpreted as performance on 770+ disease classes or as a guarantee for a newly trained model.
+The recovered Kaggle BioBERT checkpoint has **773 output classes**. The supplied Kaggle cleaned dataset contains **189,647 rows across 773 diseases**. Its label IDs are contiguous from 0 to 772, unique per disease, and consistent with the canonical alphabetical `disease2id.json` mapping.
 
-For a repeatable training run on the current cleaned dataset, use `python scripts/training/train_disease_predictor.py` as described above. The script prints the dataset dimensions and validation accuracy for the run being trained.
+The repository notebook also contains an older 41-class experiment (304 cleaned rows). That notebook output describes a different, smaller dataset and must not be used as the label map for the recovered 773-class checkpoint.
+
+For future fine-tuning, run `python scripts/training/train_disease_predictor.py` only after placing the matching 773-class cleaned CSV in the configured data directory. Validation omits singleton classes while retaining them in training.
 
 ---
-
+ 
 ## 🌍 Real-World Impact
 
 HealthGuard AI is designed to improve healthcare accessibility by simplifying complex medical information through AI-powered analysis and explainable healthcare intelligence.
